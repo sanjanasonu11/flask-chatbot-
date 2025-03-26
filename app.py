@@ -6,6 +6,7 @@ import os
 from fuzzywuzzy import process
 from pdfminer.high_level import extract_text
 from sentence_transformers import SentenceTransformer, util
+import random 
 
 app = Flask(__name__)
 CORS(app)
@@ -47,48 +48,34 @@ def ask_question():
     if not qa_data:
         return jsonify({"answer": "No Q&A data available."})
 
-    # ✅ Handle Greetings with punctuation
+    # ✅ Handle Greetings
     greetings = ["hi", "hello", "hey", "greetings", "good morning", "good afternoon", "good evening"]
     clean_question = re.sub(r'[^\w\s]', '', user_question)  # Remove punctuation
     if clean_question in greetings:
         return jsonify({"answer": "Hello! How can I help you today?"})
 
-    topic_keywords = set()
-    for q in qa_data.keys():
-        topic_keywords.update(q.lower().split())
-
-    question_words = set(user_question.split())
-    relevant_words = question_words.intersection(topic_keywords)
-    irrelevant_words = question_words - topic_keywords
-
-    print(f"User Question: {user_question}")
-    print(f"Relevant Words: {relevant_words}")
-    print(f"Irrelevant Words: {irrelevant_words}")
-
-    if len(irrelevant_words) >= len(relevant_words):
-        return jsonify({
-            "answer": "Irrelevant. Please try a question related to Microsoft AI, such as 'What is Microsoft AI?' or 'Azure AI'."
-        })
-    
-    normalized_qa_data = {q.lower(): a for q, a in qa_data.items()}
-
-    # Semantic matching with sentence embeddings
+    # ✅ Compute similarity score
     question_embedding = model.encode(user_question, convert_to_tensor=True)
-    qa_embeddings = {q: model.encode(q, convert_to_tensor=True) for q in normalized_qa_data.keys()}
+    qa_embeddings = {q: model.encode(q, convert_to_tensor=True) for q in qa_data.keys()}
     similarities = {q: util.pytorch_cos_sim(question_embedding, emb).item() for q, emb in qa_embeddings.items()}
     
     best_match = max(similarities, key=similarities.get)
     best_score = similarities[best_match]
-    
+
     print(f"Best Match: {best_match} (Score: {best_score})")
     
-    if best_score > 0.7:  # Adjust threshold for best results
-        return jsonify({"answer": normalized_qa_data[best_match]})
-    
-    return jsonify({
-        "answer": "Irrelevant. Please try a question related to Microsoft AI, such as 'What is Microsoft AI?' or 'Azure AI'."
-    })
+    # ✅ If best match is strong enough, return the answer
+    if best_score > 0.7:
+        return jsonify({"answer": qa_data[best_match]})
 
+    # ✅ If no relevant match, return suggested questions with clickable options
+    suggested_questions = random.sample(list(qa_data.keys()), min(3, len(qa_data)))
+
+    return jsonify({
+        "answer": "I couldn't find an exact match. Please try one of the following:",
+        "suggested_questions": suggested_questions
+    })
+    
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))  # Ensure PORT is properly set
     app.run(host="0.0.0.0", port=port, debug=False)
